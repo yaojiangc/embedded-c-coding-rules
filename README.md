@@ -8,7 +8,7 @@
 |  | Pet watchdog only when system is healthy | `wdt_pet(); // everywhere` | `if (system_ok()) {wdt_pet();}` |
 |  | Log reset cause at boot | — | `uint32_t cause = RCC->CSR; // store/log` |
 |  | Use explicit status enums (no magic ints) | `return -3;` | `return STATUS_TIMEOUT;` |
-|  | Fail fast: validate early and bail | `buf[idx] = v;` | `if (idx < N) { buf[idx] = v; } else { return ERR_RANGE; }` |
+|  | Fail fast: validate early and bail | `if (config_ok(cfg)) { init_hw(); start_services(); run_main_loop(); }` | `if (!config_ok(cfg)) { return ERR_CONFIG; } init_hw(); start_services(); run_main_loop(); return OK;` |
 | **Interrupts & Concurrency** |  |  |  |
 |  | Keep ISR short and non-blocking | `ISR { process(); delay_ms(10); }` | `ISR { set_flag(); } // handle in task` |
 |  | Protect shared data (critical sections/atomics) | `shared++;` | `DISABLE_IRQ(); shared++; ENABLE_IRQ();` |
