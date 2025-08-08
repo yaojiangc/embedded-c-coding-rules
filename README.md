@@ -1,85 +1,114 @@
-# Embedded C Golden Rules – Quick Reference
+# Embedded C Golden Rules
 
 | Category | Rule | 🚫 Bad Example | ✅ Good Example |
 |----------|------|----------------|----------------|
-| **Data Types** | Use `<stdint.h>` fixed-width types | `int speed;` | `uint16_t speed_kmh;` |
-| | Always specify signed/unsigned | `short temp;` | `int16_t temp_c;` |
-| | Avoid implicit type conversions | `uint8_t a = -1;` | `uint8_t a = (uint8_t)-1;` |
-| | Never rely on default `char` signedness | `char c;` | `signed char c;` or `unsigned char c;` |
-| | Avoid `float` unless needed | `float volts = adc/1023.0;` | `uint16_t mv = (adc*3300)/1023;` |
-| | Mind endianess | `memcpy(buf, &val, 4);` | Use `htonl(val)` or manual byte packing |
-| **Initialization** | Always init variables | `uint8_t x; if(x>0)` | `uint8_t x=0; if(x>0)` |
-| | Initialize arrays with `{0}` | `int arr[10];` | `int arr[10] = {0};` |
-| | Init HW regs after enabling clocks | `USART1->CR1=...;` | `RCC->APB2ENR \|= RCC_USART1EN; USART1->CR1=...;` |
-| **Pointers & Memory** | Check before deref | `*ptr = 5;` | `if(ptr) *ptr = 5;` |
-| | Avoid pointer arithmetic (except for low-level/hardware access) | `p += 5;` | Use array indexing: `arr[i+5]` |
-| | Don’t return ptr to local var | `return buf;` | Use `static` or caller-provided buffer |
-| | Avoid `malloc` in bare-metal | `ptr = malloc(100);` | Use static buffer or pool allocator |
-| | Watch stack usage | Deep recursion | Iterative approach / static buffers |
-| | Limit recursion depth | Recursive quicksort on large input | Use iterative sort or proven safe depth |
-| | Use `const` for RO data | `char msg[] = "Hi";` | `const char msg[] = "Hi";` |
-| | Align DMA buffers | Misaligned array | `__attribute__((aligned(4))) uint8_t buf[64];` |
-| | Forbid hidden allocation in libs | lib `malloc()` internally | Caller supplies memory / pool handle |
-| **Constants & Macros** | Replace magic numbers | `delay_ms(123);` | `#define SENSOR_TIMEOUT_MS 123` |
-| | Use `enum` for related constants | `if(mode == 1)` | `enum Mode { MODE_IDLE = 1 }; if(mode == MODE_IDLE)` |
-| **Control Flow & Style** | Avoid `goto` | `goto fail;` | Use function cleanup path or `break` |
-| | Descriptive names | `tmp` | `battery_voltage_mv` |
-| | Comment “why” not “what” | `// increment` | `// compensate for sensor offset` |
-| | Always use braces `{}` for if/else/loops | `if(flag) do_something();` | `if(flag) { do_something(); }` |
-| | Avoid unmarked fall-through in `switch` | `case 0: do_a(); case 1: do_b();` | `case 0: do_a(); __attribute__((fallthrough)); case 1: do_b();` |
-| | Always have default in `switch` | `switch(mode) { case 0: ... }` | `switch(mode) { case 0: ... default: handle_error(); }` |
-| | Limit function parameter count | `func(a,b,c,d,e,f);` | Pass a struct with grouped params |
-| **Interrupts & Concurrency** | Keep ISR short | `ISR { process(); log(); }` | `ISR { set_flag(); }` |
-| | No blocking in ISR | `ISR { delay_ms(10); }` | Use flag + process in main loop |
-| | Mark HW regs/shared vars `volatile` | `uint8_t flag;` | `volatile uint8_t flag;` |
-| | Protect shared data | `shared++;` | `DISABLE_IRQ(); shared++; ENABLE_IRQ();` |
-| | Mark volatile only at needed members | `volatile struct {...}` | `struct { volatile uint8_t status; uint8_t buf[8]; }` |
-| | Double-buffer shared data between ISR and main | Write buffer directly in ISR | Swap pointers after full buffer update |
-| | Clear IRQ priority policy | Random priorities | Define and document priorities |
-| | Always use timeouts | `while(!flag);` | `wait_for_flag(1000);` |
-| | Use memory barriers when needed | Update shared var before flag set | `__DSB(); flag = 1;` |
-| **Bitwise & Low-level Access** | Use macros for bits | `PORT \|= (1<<3);` | `SET_BIT(PORT, BIT3);` |
-| | Parenthesize masks/shifts | `x = 1<<n+1;` | `x = (1 << (n+1));` |
-| | Check status flags | `UART->DR = data;` | `while(!(UART->SR & TXE)); UART->DR = data;` |
-| | Use vendor masks | `REG \|= 0x08;` | `REG \|= REG_TX_ENABLE;` |
-| | Debounce inputs | `if(btn)` | Delay/filter before accept |
-| | Read registers once if volatile | `if(REG & FLAG && REG & MASK)` | `val = REG; if(val & FLAG && val & MASK)` |
-| | Write registers atomically | `REG = val;` | `REG = (REG & ~MASK) \| NEW_BITS;` |
-| | Mask interrupts for multi-byte register access | Update low/high separately w/o mask | Disable IRQs during update |
-| **Functions & Modularity** | Keep small, one purpose | 50-line function | Split into multiple small functions |
-| | Use `static` for file-scope | `int helper()` | `static int helper()` |
-| | Pass dependencies, avoid globals | Uses global `sensor_val` | Pass `sensor_val` as parameter |
-| | Prefer pure functions for logic | `int calc() { return TIMER->CNT/f; }` | `int calc(uint16_t ticks) { return ticks/f; }` |
-| | Separate I/O from logic | Math inside driver reads/writes regs | Driver only does I/O; logic in separate module |
-| | Use dependency injection | `uart_write()` called directly | Pass `io->write()` via interface struct |
-| | Make library functions reentrant | Static hidden buffers | Caller provides buffer/context |
-| | Make init/deinit idempotent | Double `init()` breaks | `init()` checks state; safe to call twice |
-| | Mark inputs/ptrs `const` | `int foo(uint8_t *p)` | `int foo(const uint8_t *p)` |
-| | Document/enforce buffer ownership | Callee `free()`s caller’s ptr | Caller owns lifetime; callee never frees |
-| **Defensive Coding & Safety** | Validate inputs | `set_speed(speed);` | `if(speed <= MAX_SPEED) set_speed(speed);` |
-| | Use `assert()` in debug | `ptr->val = 1;` | `assert(ptr != NULL); ptr->val = 1;` |
-| | Pet watchdog only when healthy | Pet everywhere | Pet after full loop OK |
-| | Log reset cause | No log | `cause = RCC->CSR;` |
-| | Use explicit status enums | `return -3;` | `return STATUS_TIMEOUT;` |
-| | Validate early, return errors | Use value before range-check | Check bounds; bail with status code |
-| **Protocols & Data Handling** | CRC/checksum data | Trust packet | Verify CRC before use |
-| | Never trust incoming sizes | Use given len | Clamp to buffer size |
-| | Encode units in names/types | `int temp;` | `int16_t temp_cdeg; // 0.01°C` |
-| | Serialize explicitly; no struct cast | `send(&pkt, sizeof pkt);` | Field-by-field pack with endianness |
-| **Testing & Debugging** | Unit test logic | No tests | Host-run unit tests |
-| | Fault injection hooks | None | Add test-only failure triggers |
-| | Keep logs out of core logic | Core math calls `printf()` | Core returns status; outer layer logs |
-| | Provide mocks/stubs for HW interfaces | Hardwired HAL calls | `struct UartVTable { write, read }` for mocks |
-| **RTOS** | One responsibility per task | One task does all | Split into dedicated tasks |
-| | Use events/semaphores | Busy wait | `osSemaphoreWait()` |
-| **Miscellaneous Gotchas** | Rate-limit flash writes | Write on every loop | Cache \& batch writes |
-| | Downcast only with checks | `uint8_t x = (uint32_t)y;` | `if(y <= UINT8_MAX) x = (uint8_t)y;` |
-| | Avoid heavy `printf` | `printf("%f", x);` | Minimal logging or int print |
-| | Watch struct padding | `send(sock, &s, sizeof(s));` | Pack manually / serialize |
-| | Pass time in, don’t read globally | `if (millis() - t0 > 10)` | `if (now_ms - t0 > 10)` (now passed in) |
-| | Isolate RNG, seed explicitly | `val = rand();` | `val = rng->next_u32(rng_ctx);` |
-| | Use table/pure transition funcs | Deep nested `if/else` | `state = fsm_step(state, evt);` (pure) |
-| | Limit header exposure | Put private APIs in `.h` | Use `.c` static + minimal public `.h` |
-| | Keep functions total (all inputs defined) | Undefined for some args | Return error for invalid cases |
-| | Avoid hidden global state in logic | Reads global mode flag | Pass mode/config into function |
-| | Centralize side effects at top-level | Logic toggles GPIOs | Logic returns actions; caller toggles GPIO |
+| **Defensive Coding & Safety** |  |  |  |
+|  | Validate inputs | `set_speed(speed);` | `if (speed <= MAX_SPEED) {set_speed(speed);}` |
+|  | Use assert() in debug builds | `ptr->val = 1;` | `assert(ptr != NULL); ptr->val = 1;` |
+|  | Pet watchdog only when system is healthy | `wdt_pet(); // everywhere` | `if (system_ok()) {wdt_pet();}` |
+|  | Log reset cause at boot | — | `uint32_t cause = RCC->CSR; // store/log` |
+|  | Use explicit status enums (no magic ints) | `return -3;` | `return STATUS_TIMEOUT;` |
+|  | Fail fast: validate early and bail | `buf[idx] = v;` | `if (idx < N) { buf[idx] = v; } else { return ERR_RANGE; }` |
+| **Interrupts & Concurrency** |  |  |  |
+|  | Keep ISR short and non-blocking | `ISR { process(); delay_ms(10); }` | `ISR { set_flag(); } // handle in task` |
+|  | Protect shared data (critical sections/atomics) | `shared++;` | `DISABLE_IRQ(); shared++; ENABLE_IRQ();` |
+|  | Mark shared vars appropriately volatile | `uint8_t flag;` | `volatile uint8_t flag;` |
+|  | Mark volatile only where needed (**[EXC-VOLATILE](#exc-volatile)**) | `volatile struct {...}` | `struct { volatile uint8_t status; uint8_t buf[8]; } s;` |
+|  | Clear and document IRQ priority policy | `NVIC_SetPriority(IRQx, rand());` | `Policy doc + fixed priorities` |
+|  | Always use timeouts on waits | `while (!flag);` | `wait_for_flag(1000); // ms` |
+|  | Use memory barriers when needed (**[EXC-VOLATILE](#exc-volatile)**) | `flag = 1;` | `__DSB(); flag = 1;` |
+|  | Double-buffer ISR↔main data | ISR writes into live buffer | Write into shadow; swap pointers atomically |
+| **Bitwise & Low-Level Hardware Access** |  |  |  |
+|  | Use named masks/macros, not magic numbers | `REG \|= 0x08;` | `REG \|= REG_TX_ENABLE;` |
+|  | Parenthesize masks and shifts | `x = 1<<n+1;` | `x = (1u << (n+1));` |
+|  | Check hardware status flags before I/O | `UART->DR = d;` | `while (!(UART->SR & TXE)){}; UART->DR = d;` |
+|  | Debounce mechanical inputs | `if (btn)` | Filter/timeout before accept |
+|  | Read volatile registers once if bits may change | `if (REG & A && REG & B)` | `uint32_t v = REG; if (v & A && v & B)` |
+|  | Write registers atomically (RMW with mask) | `REG = val;` | `REG = (REG & ~MASK) \| NEW_BITS;` |
+|  | Mask interrupts for multi-byte peripheral updates | `Update low/high w/o masking` | `DISABLE_IRQ(); write_low(); write_high(); ENABLE_IRQ();` |
+| **Initialization & Bring-Up** |  |  |  |
+|  | Follow vendor-recommended init order for HW regs/clocks (**[EXC-HW-INIT-ORDER](#exc-hw-init-order)**) | `USART->BRR=...; RCC->ENR \|= USARTEN;` | `RCC->ENR \|= USARTEN; USART->BRR=...; // or pre-config then enable (e.g., PWM/ADC)` |
+|  | Always initialize variables/structs | `uint8_t x; if (x) {...}` | `uint8_t x = 0;` |
+|  | Initialize arrays fully | `int a[10];` | `int a[10] = {0};` |
+| **Control Flow & Style** |  |  |  |
+|  | Always use braces "{}" for if/else/loops (**[EXC-BRACES](#exc-braces)**) | `if (ok) do_it();` | `if (ok) { do_it(); }` |
+|  | Avoid goto (except structured cleanup) | `goto fail;` | `do { ... if (err) break; ... } while (0);` |
+|  | Avoid unmarked fall-through in switch (**[EXC-FALLTHROUGH](#exc-fallthrough)**) | `case 0: a(); case 1: b();` | `case 0: a(); __attribute__((fallthrough)); case 1: b();` |
+|  | Always include default in switch | `switch(m){ case 0: ... }` | `switch(m){ case 0: ... default: handle_error(); }` |
+|  | Limit function parameter count | `f(a,b,c,d,e,f);` | `f((struct Cfg){...});` |
+|  | Use descriptive names; comment why, not what | `tmp; // inc` | `battery_mv; // compensates sensor offset` |
+| **Data Types & Type Safety** |  |  |  |
+|  | Use <stdint.h> fixed-width types | `int speed;` | `uint16_t speed_kmh;` |
+|  | Always specify signedness | `short temp;` | `int16_t temp_c;` |
+|  | Avoid implicit conversions (signed↔unsigned) | `uint8_t a = -1;` | `uint8_t a = (uint8_t)-1;` |
+|  | Don’t rely on default char signedness | `char c;` | `signed char c;` / `unsigned char c;` |
+|  | Mind endianness when sharing data (**[EXC-ENDIANNESS](#exc-endianness)**) | `memcpy(buf,&val,4);` | Manual pack/htonl()/defined wire format |
+|  | Casting: downcast only with range checks | `u8 = (uint32_t)y;` | `if (y <= UINT8_MAX) u8 = (uint8_t)y;` |
+| **Pointers, Memory & Performance** |  |  |  |
+|  | Check pointers before deref | `*p = 5;` | `if (p) *p = 5;` |
+|  | Avoid pointer arithmetic in app logic (**[EXC-POINTER-ARITH](#exc-pointer-arith)**) | `p += 5;` | Use indexing; pointer step only for HW tables |
+|  | Avoid malloc in bare-metal (**[EXC-MALLOC](#exc-malloc)**) | `p = malloc(100);` | Static buffers/pools; RTOS heap w/ bounds |
+|  | Watch stack usage; add guards | deep recursion | iterative / static scratch |
+|  | Limit recursion (**[EXC-RECURSION](#exc-recursion)**) | quicksort on large data | iterative or bounded-depth with tests |
+|  | Use const to place RO data in flash | `char s[]="Hi";` | `const char s[]="Hi";` |
+|  | Align DMA buffers & handle cache | `misaligned DMA buf` | `__attribute__((aligned(32))) uint8_t dma_buf[...] ;` |
+|  | Hoist invariants out of loops | `for(...) k=calc();` | precompute k outside the loop |
+|  | Avoid expensive div/mod in hot paths | `/ 8` | `>> 3` (when exact) |
+|  | Inline tiny hot helpers (**[EXC-INLINE](#exc-inline)**) | call tiny func in tight loop | `static inline` (verify size/speed)` |
+|  | Minimize volatile traffic (**[EXC-VOLATILE](#exc-volatile)**) | read same reg repeatedly | cache once if safe per RM |
+| **Functions, Modularity & Testability** |  |  |  |
+|  | Keep functions small; single responsibility | long monolith | split helpers |
+|  | Use static for internal linkage | `int helper()` | `static int helper()` |
+|  | Pass dependencies; avoid hidden globals | uses global `sensor_val` | `foo(sensor_val)` |
+|  | Prefer pure functions for logic | `calc(){return TIMER->CNT/f;}` | `calc(ticks){return ticks/f;}` |
+|  | Separate I/O from logic | math inside driver hitting regs | driver does I/O; logic module is pure |
+|  | Use DI/vtables for HW | `uart_write()` direct | `io->write()` via iface |
+|  | Reentrant libs: no hidden state | static hidden buf | caller-owned ctx&buffers |
+|  | Idempotent init/deinit | `init()` twice breaks | `if (!inited) init();` |
+|  | Mark pointer params const where possible | `int f(uint8_t *p)` | `int f(const uint8_t *p)` |
+|  | Document buffer ownership/lifetime | callee frees caller’s mem | caller owns, callee never frees |
+| **Protocols & Data Handling** |  |  |  |
+|  | Validate external input sizes | trust len | clamp len to buffer capacity |
+|  | CRC/checksum persistent/comms data | none | verify before use |
+|  | Encode units in names/types | `int temp;` | `int16_t temp_cdeg; // 0.01°C` |
+|  | Serialize explicitly (no struct casts) | `send(&pkt,sizeof pkt);` | field-by-field pack; defined endianness |
+|  | Heavy printf is expensive (**[EXC-PRINTF](#exc-printf)**) | `printf("%f",x);` | minimal logs; int print; deferred drain |
+|  | Watch struct padding/ABI | send raw struct | packed/serialized layout |
+| **RTOS** |  |  |  |
+|  | One responsibility per task | god task | dedicated tasks per concern |
+|  | Use events/semaphores (no busy-wait) | `while(!flag);` | `osSemaphoreWait(..., timeout);` |
+|  | Respect ISR-safe API subset | call blocking API in ISR | use *_FromISR APIs only |
+
+---
+
+## Exceptions
+
+### EXC-HW-INIT-ORDER
+Many MCUs require clock first, then config (e.g., STM32 USART). Some peripherals (PWM/ADC/DAC/comparators) may start output/sampling immediately on enable; pre-configure safe defaults before enabling to avoid glitches or unsafe pulses.
+
+### EXC-POINTER-ARITH
+Avoid in application logic for readability/safety. Acceptable for hardware register maps, DMA descriptor walking, or tight binary parsers when documented and reviewed.
+
+### EXC-ENDIANNESS
+Use a single, versioned wire format and pack/unpack with shifts or `hton*/ntoh*`. Don’t `memcpy` raw structs across interfaces.
+
+### EXC-MALLOC
+On bare-metal, prefer static/pool allocators. In RTOS systems, bounded heaps with fragmentation checks and allocation policy (startup-only, no free in real-time paths) can be OK.
+
+### EXC-RECURSION
+Only if you can prove bounded depth and stack headroom (watermarks/guards). Otherwise avoid.
+
+### EXC-VOLATILE
+Some regs require multi-read sequences (e.g., read-to-clear). Cache only when the reference manual permits; otherwise re-read per spec. Also use memory barriers where hardware ordering matters.
+
+### EXC-PRINTF
+Pulling in float formatting drags big libs and stalls timing. Prefer integer fixed-point logs, deferred draining, or ring-buffered logging.
+
+### EXC-INLINE
+Use `static inline` sparingly; verify code size vs. speed in the map file/metrics.
+
+### EXC-BRACES
+Always use `{}` in human-written code. Generated code with enforced formatting may omit, but treat as an exception with review.
+
+### EXC-FALLTHROUGH
+If intentional, mark it: `__attribute__((fallthrough));` (GCC/Clang) or `[[fallthrough]];` where supported.
