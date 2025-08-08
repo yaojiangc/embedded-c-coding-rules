@@ -4,15 +4,19 @@
 |----------|------|----------------|----------------|
 | **Data Types** | Use `<stdint.h>` fixed-width types | `int speed;` | `uint16_t speed_kmh;` |
 | | Always specify signed/unsigned | `short temp;` | `int16_t temp_c;` |
+| | Avoid implicit type conversions | `uint8_t a = -1;` | `uint8_t a = (uint8_t)-1;` |
+| | Never rely on default `char` signedness | `char c;` | `signed char c;` or `unsigned char c;` |
 | | Avoid `float` unless needed | `float volts = adc/1023.0;` | `uint16_t mv = (adc*3300)/1023;` |
 | | Mind endianess | `memcpy(buf, &val, 4);` | Use `htonl(val)` or manual byte packing |
 | **Initialization** | Always init variables | `uint8_t x; if(x>0)` | `uint8_t x=0; if(x>0)` |
+| | Initialize arrays with `{0}` | `int arr[10];` | `int arr[10] = {0};` |
 | | Init HW regs after enabling clocks | `USART1->CR1=...;` | `RCC->APB2ENR \|= RCC_USART1EN; USART1->CR1=...;` |
 | **Pointers & Memory** | Check before deref | `*ptr = 5;` | `if(ptr) *ptr = 5;` |
-| | Avoid pointer arithmetic | `p += 5;` | Use array indexing: `arr[i+5]` |
+| | Avoid pointer arithmetic (except for low-level/hardware access) | `p += 5;` | Use array indexing: `arr[i+5]` |
 | | Don’t return ptr to local var | `return buf;` | Use `static` or caller-provided buffer |
 | | Avoid `malloc` in bare-metal | `ptr = malloc(100);` | Use static buffer or pool allocator |
 | | Watch stack usage | Deep recursion | Iterative approach / static buffers |
+| | Limit recursion depth | Recursive quicksort on large input | Use iterative sort or proven safe depth |
 | | Use `const` for RO data | `char msg[] = "Hi";` | `const char msg[] = "Hi";` |
 | | Align DMA buffers | Misaligned array | `__attribute__((aligned(4))) uint8_t buf[64];` |
 | | Forbid hidden allocation in libs | lib `malloc()` internally | Caller supplies memory / pool handle |
@@ -22,17 +26,26 @@
 | | Descriptive names | `tmp` | `battery_voltage_mv` |
 | | Comment “why” not “what” | `// increment` | `// compensate for sensor offset` |
 | | Always use braces `{}` for if/else/loops | `if(flag) do_something();` | `if(flag) { do_something(); }` |
+| | Avoid unmarked fall-through in `switch` | `case 0: do_a(); case 1: do_b();` | `case 0: do_a(); __attribute__((fallthrough)); case 1: do_b();` |
+| | Always have default in `switch` | `switch(mode) { case 0: ... }` | `switch(mode) { case 0: ... default: handle_error(); }` |
+| | Limit function parameter count | `func(a,b,c,d,e,f);` | Pass a struct with grouped params |
 | **Interrupts & Concurrency** | Keep ISR short | `ISR { process(); log(); }` | `ISR { set_flag(); }` |
 | | No blocking in ISR | `ISR { delay_ms(10); }` | Use flag + process in main loop |
 | | Mark HW regs/shared vars `volatile` | `uint8_t flag;` | `volatile uint8_t flag;` |
 | | Protect shared data | `shared++;` | `DISABLE_IRQ(); shared++; ENABLE_IRQ();` |
+| | Mark volatile only at needed members | `volatile struct {...}` | `struct { volatile uint8_t status; uint8_t buf[8]; }` |
+| | Double-buffer shared data between ISR and main | Write buffer directly in ISR | Swap pointers after full buffer update |
 | | Clear IRQ priority policy | Random priorities | Define and document priorities |
 | | Always use timeouts | `while(!flag);` | `wait_for_flag(1000);` |
+| | Use memory barriers when needed | Update shared var before flag set | `__DSB(); flag = 1;` |
 | **Bitwise & Low-level Access** | Use macros for bits | `PORT \|= (1<<3);` | `SET_BIT(PORT, BIT3);` |
 | | Parenthesize masks/shifts | `x = 1<<n+1;` | `x = (1 << (n+1));` |
 | | Check status flags | `UART->DR = data;` | `while(!(UART->SR & TXE)); UART->DR = data;` |
 | | Use vendor masks | `REG \|= 0x08;` | `REG \|= REG_TX_ENABLE;` |
 | | Debounce inputs | `if(btn)` | Delay/filter before accept |
+| | Read registers once if volatile | `if(REG & FLAG && REG & MASK)` | `val = REG; if(val & FLAG && val & MASK)` |
+| | Write registers atomically | `REG = val;` | `REG = (REG & ~MASK) \| NEW_BITS;` |
+| | Mask interrupts for multi-byte register access | Update low/high separately w/o mask | Disable IRQs during update |
 | **Functions & Modularity** | Keep small, one purpose | 50-line function | Split into multiple small functions |
 | | Use `static` for file-scope | `int helper()` | `static int helper()` |
 | | Pass dependencies, avoid globals | Uses global `sensor_val` | Pass `sensor_val` as parameter |
